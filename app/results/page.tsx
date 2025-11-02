@@ -1,18 +1,19 @@
-"use client"
+// app/results/page.tsx
+"use client";
 
-import { useSearchParams } from "next/navigation"
-import Link from "next/link"
-import { Suspense, useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "react-toastify"
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 
-import { CosmicBackground } from "@/components/cosmic-background"
-import { GradientOrbs } from "@/components/gradient-orbs"
-import { GlobeNetwork } from "@/components/globe-network"
-import { StepLoadingAnimation } from "@/components/step-loading-animation"
+import { CosmicBackground } from "@/components/cosmic-background";
+import { GradientOrbs } from "@/components/gradient-orbs";
+import { GlobeNetwork } from "@/components/globe-network";
+import { StepLoadingAnimation } from "@/components/step-loading-animation";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 import {
   ArrowLeft,
@@ -29,42 +30,47 @@ import {
   Globe,
   Crown,
   Users,
-} from "lucide-react"
+} from "lucide-react";
 
-import { fetchIndicatorSummary, fetchIndicatorTrueOnly } from "@/lib/indicator-api"
+// ใช้ endpoint จริง
+import { resolveCompany } from "@/lib/companyApi";
+import {
+  fetchIndicatorSummary,
+  readPrefetchedSummary,
+  clearPrefetchedSummary,
+  IndicatorSummary,
+} from "@/lib/indicator-api";
 
-// ---------- Types ----------
+/* ---------------- Types/Maps ---------------- */
 type CategoryId =
   | "shared-resources"
   | "foreigner-control"
   | "directorship-pattern"
   | "shareholding-patterns"
   | "financial-indicators"
-  | "high-risk-industry"
+  | "high-risk-industry";
 
 type NormalizedIndicator = {
-  id: number // display id (running no. within all categories)
-  code: string
-  name: string
-  nameEn: string
-  status: "pass" | "fail"
-  category: "Ownership" | "Governance" | "Compliance" | "Risk" | "Financial" | "Assets"
-  description?: string
-  details?: any
-  // for UI helpers
-  _categoryKey: CategoryId
-}
+  id: number;
+  code: string;
+  name: string;
+  nameEn: string;
+  status: "pass" | "fail";
+  category: "Ownership" | "Governance" | "Compliance" | "Risk" | "Financial" | "Assets";
+  description?: string;
+  details?: any;
+  _categoryKey: CategoryId;
+};
 
-// ---------- Mapping zone (ปรับได้ตามจริงของ backend) ----------
-// 1) จัดหมวดหมู่ตาม "code" ของ backend -> เข้ากลุ่ม category UI เดิม
 const codeToCategoryKey: Record<string, CategoryId> = {
   // Shared resources
-  ad10000: "shared-resources", // Registered address duplicated (5+)
-  ad20000: "shared-resources", // Accounting office address duplicated (5+)
+  ad10000: "shared-resources",
+  ad20000: "shared-resources",
   au10000: "shared-resources",
   au20000: "shared-resources",
 
-  // Shareholding patterns
+  // Shareholding patterns (เพิ่ม C10000)
+  c10000: "shareholding-patterns",
   h20000: "shareholding-patterns",
   h30000: "shareholding-patterns",
   h40000: "shareholding-patterns",
@@ -86,26 +92,15 @@ const codeToCategoryKey: Record<string, CategoryId> = {
 
   // Financial
   f10000: "financial-indicators",
-  
 
-  // High risk industry / assets
+  // High risk industry
   i10000: "high-risk-industry",
   i20000: "high-risk-industry",
   i30000: "high-risk-industry",
+};
 
-}
+const codesWithDetails = new Set<string>(["ad10000", "ad20000", "owc10000", "di10000", "di20000", "bo49000"]);
 
-// 2) code ที่อยากมี “รายละเอียดพิเศษ/แผงย่อย” (ถ้าข้อมูลจริงมี) จะเปิด/แสดงปุ่ม expand
-const codesWithDetails = new Set<string>([
-  "ad10000",
-  "ad20000",
-  "owc10000",
-  "di10000",
-  "di20000",
-  "bo49000", // Beneficial Owner >= 49% (ตัวอย่าง)
-])
-
-// 3) จัดระเบียบ “ลำดับแสดง” ภายในแต่ละ category (อยากคุมเหมือน mock)
 const categoryOrder: CategoryId[] = [
   "shared-resources",
   "foreigner-control",
@@ -113,92 +108,40 @@ const categoryOrder: CategoryId[] = [
   "shareholding-patterns",
   "financial-indicators",
   "high-risk-industry",
-]
+];
 
-// ---------- Static UI categories (เหมือนเดิม) ----------
 const categories = [
-  {
-    id: "shared-resources" as const,
-    name: "Shared Resources",
-    nameTh: "ทรัพยากรที่ใช้ร่วมกัน",
-    icon: Users,
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/10",
-    borderColor: "border-blue-500/30",
-  },
-  {
-    id: "foreigner-control" as const,
-    name: "Foreigner Control",
-    nameTh: "การควบคุมโดยต่างชาติ",
-    icon: Globe,
-    color: "text-cyan-400",
-    bgColor: "bg-cyan-500/10",
-    borderColor: "border-cyan-500/30",
-  },
-  {
-    id: "directorship-pattern" as const,
-    name: "Directorship Pattern",
-    nameTh: "รูปแบบกรรมการ",
-    icon: Crown,
-    color: "text-purple-400",
-    bgColor: "bg-purple-500/10",
-    borderColor: "border-purple-500/30",
-  },
-  {
-    id: "shareholding-patterns" as const,
-    name: "Shareholding Patterns",
-    nameTh: "รูปแบบการถือหุ้น",
-    icon: Building2,
-    color: "text-orange-400",
-    bgColor: "bg-orange-500/10",
-    borderColor: "border-orange-500/30",
-  },
-  {
-    id: "financial-indicators" as const,
-    name: "Financial Indicators",
-    nameTh: "ตัวชี้วัดทางการเงิน",
-    icon: DollarSign,
-    color: "text-green-400",
-    bgColor: "bg-green-500/10",
-    borderColor: "border-green-500/30",
-  },
-  {
-    id: "high-risk-industry" as const,
-    name: "High Risk Industry",
-    nameTh: "อุตสาหกรรมเสี่ยงสูง",
-    icon: AlertTriangle,
-    color: "text-red-400",
-    bgColor: "bg-red-500/10",
-    borderColor: "border-red-500/30",
-  },
-]
+  { id: "shared-resources" as const, name: "Shared Resources", nameTh: "ทรัพยากรที่ใช้ร่วมกัน", icon: Users, color: "text-blue-400", bgColor: "bg-blue-500/10", borderColor: "border-blue-500/30" },
+  { id: "foreigner-control" as const, name: "Foreigner Control", nameTh: "การควบคุมโดยต่างชาติ", icon: Globe, color: "text-cyan-400", bgColor: "bg-cyan-500/10", borderColor: "border-cyan-500/30" },
+  { id: "directorship-pattern" as const, name: "Directorship Pattern", nameTh: "รูปแบบกรรมการ", icon: Crown, color: "text-purple-400", bgColor: "bg-purple-500/10", borderColor: "border-purple-500/30" },
+  { id: "shareholding-patterns" as const, name: "Shareholding Patterns", nameTh: "รูปแบบการถือหุ้น", icon: Building2, color: "text-orange-400", bgColor: "bg-orange-500/10", borderColor: "border-orange-500/30" },
+  { id: "financial-indicators" as const, name: "Financial Indicators", nameTh: "ตัวชี้วัดทางการเงิน", icon: DollarSign, color: "text-green-400", bgColor: "bg-green-500/10", borderColor: "border-green-500/30" },
+  { id: "high-risk-industry" as const, name: "High Risk Industry", nameTh: "อุตสาหกรรมเสี่ยงสูง", icon: AlertTriangle, color: "text-red-400", bgColor: "bg-red-500/10", borderColor: "border-red-500/30" },
+];
 
-// ---------- Small icon helpers (เหมือนเดิม) ----------
 const getCategoryIcon = (category: NormalizedIndicator["category"]) => {
   switch (category) {
-    case "Ownership":
-      return <Users className="h-4 w-4 text-blue-600" />
-    case "Governance":
-      return <Shield className="h-4 w-4 text-purple-600" />
-    case "Compliance":
-      return <Scale className="h-4 w-4 text-orange-600" />
-    case "Risk":
-      return <AlertTriangle className="h-4 w-4 text-yellow-600" />
-    case "Financial":
-      return <DollarSign className="h-4 w-4 text-green-600" />
-    case "Assets":
-      return <Home className="h-4 w-4 text-indigo-600" />
-    default:
-      return <Building2 className="h-4 w-4 text-gray-600" />
+    case "Ownership": return <Users className="h-4 w-4 text-blue-600" />;
+    case "Governance": return <Shield className="h-4 w-4 text-purple-600" />;
+    case "Compliance": return <Scale className="h-4 w-4 text-orange-600" />;
+    case "Risk": return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
+    case "Financial": return <DollarSign className="h-4 w-4 text-green-600" />;
+    case "Assets": return <Home className="h-4 w-4 text-indigo-600" />;
+    default: return <Building2 className="h-4 w-4 text-gray-600" />;
   }
+};
+const getStatusIcon = (status: "pass" | "fail") =>
+  status === "pass" ? <Circle className="h-5 w-5 text-green-600 fill-green-600" /> : <Circle className="h-5 w-5 text-red-600 fill-red-600" />;
+
+/* ------- small util: แทน findLastIndex เพื่อกันแครชใน SSR ------- */
+function lastIndexWhere<T>(arr: T[], pred: (t: T, idx: number, a: T[]) => boolean): number {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (pred(arr[i], i, arr)) return i;
+  }
+  return -1;
 }
 
-const getStatusIcon = (status: "pass" | "fail") => {
-  if (status === "pass") return <Circle className="h-5 w-5 text-green-600 fill-green-600" />
-  return <Circle className="h-5 w-5 text-red-600 fill-red-600" />
-}
-
-// ---------- Page ----------
+/* ---------------- Shell ---------------- */
 export default function ResultsPage() {
   return (
     <Suspense
@@ -210,139 +153,189 @@ export default function ResultsPage() {
     >
       <ResultsContent />
     </Suspense>
-  )
+  );
 }
 
+/* ---------------- Normalizers ---------------- */
+function normalizeFromSummary(summary: IndicatorSummary) {
+  const ALLOW = new Set(Object.keys(codeToCategoryKey));
+  const catKeyToDisplayCategory: Record<CategoryId, NormalizedIndicator["category"]> = {
+    "shared-resources": "Ownership",
+    "foreigner-control": "Compliance",
+    "directorship-pattern": "Governance",
+    "shareholding-patterns": "Ownership",
+    "financial-indicators": "Financial",
+    "high-risk-industry": "Assets",
+  };
+
+  const grouped: Record<CategoryId, NormalizedIndicator[]> = {
+    "shared-resources": [],
+    "foreigner-control": [],
+    "directorship-pattern": [],
+    "shareholding-patterns": [],
+    "financial-indicators": [],
+    "high-risk-industry": [],
+  };
+
+  for (const it of summary.indicators ?? []) {
+    const codeLower = String(it.code || "").toLowerCase();
+    if (!ALLOW.has(codeLower)) continue;
+
+    const catKey = codeToCategoryKey[codeLower];
+    const status: "fail" | "pass" = it.value ? "fail" : "pass";
+
+    grouped[catKey].push({
+      id: 0,
+      code: codeLower,
+      name: it.name_th ?? it.code?.toUpperCase() ?? codeLower.toUpperCase(),
+      nameEn: it.name_en ?? "",
+      status,
+      category: catKeyToDisplayCategory[catKey],
+      description: it.description ?? undefined,
+      _categoryKey: catKey,
+    });
+  }
+
+  const merged: NormalizedIndicator[] = [];
+  for (const cat of categoryOrder) {
+    const arr = grouped[cat];
+    arr.sort((a, b) => (a.status === b.status ? a.name.localeCompare(b.name, "th") : a.status === "fail" ? -1 : 1));
+    merged.push(...arr);
+  }
+  merged.forEach((m, idx) => (m.id = idx + 1));
+  return merged;
+}
+
+function normalizeFromCombined(res: any) {
+  const ALLOW = new Set(Object.keys(codeToCategoryKey));
+  const catKeyToDisplayCategory: Record<CategoryId, NormalizedIndicator["category"]> = {
+    "shared-resources": "Ownership",
+    "foreigner-control": "Compliance",
+    "directorship-pattern": "Governance",
+    "shareholding-patterns": "Ownership",
+    "financial-indicators": "Financial",
+    "high-risk-industry": "Assets",
+  };
+
+  const grouped: Record<CategoryId, NormalizedIndicator[]> = {
+    "shared-resources": [],
+    "foreigner-control": [],
+    "directorship-pattern": [],
+    "shareholding-patterns": [],
+    "financial-indicators": [],
+    "high-risk-industry": [],
+  };
+
+  const raw: any[] = Array.isArray(res?.indicators) ? res.indicators : [];
+  for (const it of raw) {
+    const codeLower = String(it.indicator || "").toLowerCase();
+    if (!ALLOW.has(codeLower)) continue;
+
+    const catKey = codeToCategoryKey[codeLower];
+    const flag = Number(it.flag) === 1 ? 1 : 0;
+    const status: "fail" | "pass" = flag === 1 ? "fail" : "pass";
+
+    grouped[catKey].push({
+      id: 0,
+      code: codeLower,
+      name: it.name_th ?? it.name ?? codeLower.toUpperCase(),
+      nameEn: it.name_en ?? "",
+      status,
+      category: catKeyToDisplayCategory[catKey],
+      description: it.updated_at ? `อัปเดตล่าสุด: ${new Date(it.updated_at).toLocaleString()}` : undefined,
+      _categoryKey: catKey,
+    });
+  }
+
+  const merged: NormalizedIndicator[] = [];
+  for (const cat of categoryOrder) {
+    const arr = grouped[cat];
+    arr.sort((a, b) => (a.status === b.status ? a.name.localeCompare(b.name, "th") : a.status === "fail" ? -1 : 1));
+    merged.push(...arr);
+  }
+  merged.forEach((m, idx) => (m.id = idx + 1));
+  return merged;
+}
+
+/* ---------------- Page Content ---------------- */
 function ResultsContent() {
-  const searchParams = useSearchParams()
-  const registration_id = searchParams.get("registration_id")
-  const fallbackCompany = searchParams.get("company") || "บริษัท ซันนี่ วิวส์ จำกัด"
+  const searchParams = useSearchParams();
 
-  const [isLoading, setIsLoading] = useState(true)
-  const [expandedIndicators, setExpandedIndicators] = useState<Set<string>>(new Set())
-  const [filter, setFilter] = useState<"all" | "pass" | "fail">("all")
-  const [displayedCategories, setDisplayedCategories] = useState<string[]>([])
-  const [displayedIndicatorsByCategory, setDisplayedIndicatorsByCategory] = useState<Record<string, string[]>>({})
-  const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0)
-  const [currentIndicatorInCategory, setCurrentIndicatorInCategory] = useState(0)
-  const [highlightedCode, setHighlightedCode] = useState<string | null>(null)
-  const [displayedFailCount, setDisplayedFailCount] = useState(0)
-  const [displayedPassCount, setDisplayedPassCount] = useState(0)
+  // รองรับทั้ง q และ registration_id
+  const qParam = (searchParams.get("q") ?? "").trim();
+  const registrationParam = (searchParams.get("registration_id") ?? "").trim();
+  const registration_id = (qParam || registrationParam).replace(/\s+/g, "");
 
-  const indicatorRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const fallbackCompany = searchParams.get("company") || "บริษัท ซันนี่ วิวส์ จำกัด";
 
-  const [companyName, setCompanyName] = useState<string>(fallbackCompany)
-  const [normalized, setNormalized] = useState<NormalizedIndicator[]>([])
+  const [isLoading, setIsLoading] = useState(true);
+  const [expandedIndicators, setExpandedIndicators] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<"all" | "pass" | "fail">("all");
+  const [displayedCategories, setDisplayedCategories] = useState<string[]>([]);
+  const [displayedIndicatorsByCategory, setDisplayedIndicatorsByCategory] = useState<Record<string, string[]>>({});
+  const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0);
+  const [currentIndicatorInCategory, setCurrentIndicatorInCategory] = useState(0);
+  const [highlightedCode, setHighlightedCode] = useState<string | null>(null);
 
-  // ---- Fetch real data & normalize to UI model of mock ----
+  const indicatorRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const [companyName, setCompanyName] = useState<string>(fallbackCompany);
+  const [normalized, setNormalized] = useState<NormalizedIndicator[]>([]);
+
+  // ดึงข้อมูล: ใช้ summary API ก่อน แล้วค่อย fallback
   useEffect(() => {
     const run = async () => {
       try {
-        setIsLoading(true)
-        if (!registration_id) throw new Error("missing registration_id")
+        setIsLoading(true);
+        if (!registration_id) throw new Error("missing registration_id");
 
-        const [summaryRes, trueOnlyRes] = await Promise.all([
-          fetchIndicatorSummary(registration_id),
-          fetchIndicatorTrueOnly(registration_id),
-        ])
+        let companyNameLocal: string | null = null;
 
-        setCompanyName(summaryRes?.company_name ?? `ทะเบียน ${registration_id}`)
-
-        // trueOnly: รายการที่เป็น true เท่านั้น (found)
-        const trueSet = new Set((trueOnlyRes?.indicators ?? []).map((x: any) => x.code))
-
-        // สร้าง normalized indicators จาก summary.indicators
-        // summary.indicators ควรมี: code, name_th, name_en (หรือชื่อใกล้เคียง)
-        const sourceList: any[] = summaryRes?.indicators ?? []
-
-        // helper map (code -> extra details) ถ้ามีฝั่ง backend ส่งรายละเอียดมาอีก route ก็ยัดได้
-        const detailsMap: Record<string, any> = {} // ปัจจุบันว่างไว้ก่อน
-
-        // แปลง code -> category display (6 กลุ่มเดิม) + Governance/Compliance/ฯลฯ ของแถว
-        const catKeyToDisplayCategory: Record<CategoryId, NormalizedIndicator["category"]> = {
-          "shared-resources": "Ownership",
-          "foreigner-control": "Compliance",
-          "directorship-pattern": "Governance",
-          "shareholding-patterns": "Ownership",
-          "financial-indicators": "Financial",
-          "high-risk-industry": "Assets",
+        // เช็ค prefetch ให้เลขตรงกัน
+        let summary: IndicatorSummary | null = readPrefetchedSummary();
+        if (summary && (summary.registration_id || "").replace(/\s+/g, "") !== registration_id) {
+          summary = null;
         }
 
-        // จัดเรียงภายใน category ตามลำดับชื่อ code (หรือจะกำหนด “order list” เองก็ได้)
-        const grouped: Record<CategoryId, NormalizedIndicator[]> = {
-          "shared-resources": [],
-          "foreigner-control": [],
-          "directorship-pattern": [],
-          "shareholding-patterns": [],
-          "financial-indicators": [],
-          "high-risk-industry": [],
-        }
-
-        for (const it of sourceList) {
-          const code: string = it.code
-          const catKey = codeToCategoryKey[code] ?? "shared-resources" // ถ้าไม่รู้หมวด จัดเข้าชั่วคราว
-          const status: "pass" | "fail" = trueSet.has(code) ? "fail" : "pass"
-
-          grouped[catKey].push({
-            id: 0, // จะใส่ทีหลัง
-            code,
-            name: it.name_th ?? it.name ?? code,
-            nameEn: it.name_en ?? "",
-            status,
-            category: catKeyToDisplayCategory[catKey],
-            description: it.description ?? undefined,
-            details: detailsMap[code],
-            _categoryKey: catKey,
-          })
-        }
-
-        // ถ้าบาง code ที่ mock เคยมี แต่ summary ไม่มี → แจ้งว่าไม่มีข้อมูล (ยังคงหน้าตาการ์ดเดิม)
-        // ตัวอย่าง: อยากบังคับให้มี ad10000, owc10000 เป็นต้น
-        const expectedCodes = Object.keys(codeToCategoryKey)
-        for (const code of expectedCodes) {
-          const has = sourceList.some((x) => x.code === code)
-          if (!has) {
-            const catKey = codeToCategoryKey[code]
-            grouped[catKey].push({
-              id: 0,
-              code,
-              name: `(ไม่มีข้อมูล) ${code}`,
-              nameEn: "",
-              status: "pass", // ให้ผ่านไว้ (จะมีบรรทัดบอกว่าไม่มีข้อมูล)
-              category: catKeyToDisplayCategory[catKey],
-              description: "ไม่มีข้อมูลจาก backend สำหรับตัวชี้วัดนี้",
-              _categoryKey: catKey,
-            })
+        if (!summary) {
+          try {
+            summary = await fetchIndicatorSummary(registration_id);
+          } catch {
+            // fallback ด้านล่าง
           }
         }
 
-        // ให้เป็นลำดับตาม categoryOrder → แล้วรันเลขลำดับแสดงผล
-        const merged: NormalizedIndicator[] = []
-        for (const cat of categoryOrder) {
-          const arr = grouped[cat]
-          // เรียง fail ก่อน pass เพื่อให้ animation ใส่ในคอลัมน์ซ้ายก่อน (ตาม mock เดิม)
-          arr.sort((a, b) => (a.status === b.status ? a.name.localeCompare(b.name, "th") : a.status === "fail" ? -1 : 1))
-          merged.push(...arr)
+        if (summary) {
+          companyNameLocal = summary.company_name ?? null;
+          const merged = normalizeFromSummary(summary);
+          setNormalized(merged);
+        } else {
+          const res: any = await resolveCompany(registration_id);
+          companyNameLocal =
+            res?.company?.name_th ||
+            res?.company?.name_en ||
+            `ทะเบียน ${registration_id}`;
+          const merged = normalizeFromCombined(res);
+          setNormalized(merged);
         }
-        // set running display id
-        merged.forEach((m, idx) => (m.id = idx + 1))
 
-        setNormalized(merged)
-      } catch (e: any) {
-        console.error(e)
-        toast.error("ไม่สามารถดึงข้อมูลบริษัทได้", { theme: "colored" })
+        setCompanyName(companyNameLocal || `ทะเบียน ${registration_id}`);
+
+        clearPrefetchedSummary();
+      } catch (e) {
+        console.error(e);
+        toast.error("ไม่สามารถดึงข้อมูลบริษัทได้", { theme: "colored" });
       } finally {
-        // ปล่อยให้ animation “loading 13s” เดิมทำงาน? → คง UX เดิม: ให้โชว์ StepLoadingAnimation พอสั้นลง
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
 
-    run()
+    run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registration_id])
+  }, [registration_id]);
 
-  // ----- Build structures exactly like mock -----
+  // จัดรายการตามหมวด
   const indicatorsByCategory = useMemo(() => {
     const acc: Record<CategoryId, NormalizedIndicator[]> = {
       "shared-resources": [],
@@ -351,88 +344,87 @@ function ResultsContent() {
       "shareholding-patterns": [],
       "financial-indicators": [],
       "high-risk-industry": [],
-    }
-    for (const it of normalized) acc[it._categoryKey].push(it)
-    return acc
-  }, [normalized])
+    };
+    for (const it of normalized) acc[it._categoryKey].push(it);
+    return acc;
+  }, [normalized]);
 
-  // running numbers by id for display bubble (เหมือน mock)
+  // เลขลำดับโชว์
   const indicatorDisplayNumbers = useMemo(() => {
-    const out: Record<string, number> = {}
-    let run = 1
+    const out: Record<string, number> = {};
+    let run = 1;
     for (const cat of categoryOrder) {
       for (const it of indicatorsByCategory[cat]) {
-        out[it.code] = run++
+        out[it.code] = run++;
       }
     }
-    return out
-  }, [indicatorsByCategory])
+    return out;
+  }, [indicatorsByCategory]);
 
-  const passCount = normalized.filter((i) => i.status === "pass").length
-  const failCount = normalized.filter((i) => i.status === "fail").length
+  const passCount = normalized.filter((i) => i.status === "pass").length;
+  const failCount = normalized.filter((i) => i.status === "fail").length;
 
-  // ----- “ทีละขั้น” reveal animation logic (คง flow เดิม) -----
+  // นับเฉพาะที่ reveal แล้ว
+  const { displayedFailCount, displayedPassCount } = useMemo(() => {
+    const shownCodes = Object.values(displayedIndicatorsByCategory).flat();
+    let fail = 0, pass = 0;
+    for (const code of shownCodes) {
+      const it = normalized.find(n => n.code === code);
+      if (!it) continue;
+      if (it.status === "fail") fail++;
+      else pass++;
+    }
+    return { displayedFailCount: fail, displayedPassCount: pass };
+  }, [displayedIndicatorsByCategory, normalized]);
+
+  // Reveal animation
   useEffect(() => {
-    if (isLoading) return
-    if (currentCategoryIndex >= categories.length) return
+    if (isLoading) return;
+    if (currentCategoryIndex >= categories.length) return;
 
-    const currentCategoryKey = categories[currentCategoryIndex].id as CategoryId
-    const list = indicatorsByCategory[currentCategoryKey]
+    const currentCategoryKey = categories[currentCategoryIndex].id as CategoryId;
+    const list = indicatorsByCategory[currentCategoryKey] ?? [];
 
-    // ใส่ category ลง displayedCategories ถ้ายังไม่เคย
     if (!displayedCategories.includes(currentCategoryKey)) {
-      setDisplayedCategories((prev) => [...prev, currentCategoryKey])
+      setDisplayedCategories((prev) => [...prev, currentCategoryKey]);
       setTimeout(() => {
-        const el = categoryRefs.current[currentCategoryKey]
-        el?.scrollIntoView({ behavior: "smooth", block: "start" })
-      }, 100)
-      return // รอรอบถัดไป add indicator
+        const el = categoryRefs.current[currentCategoryKey];
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+      return;
     }
 
     if (currentIndicatorInCategory < list.length) {
-      const cur = list[currentIndicatorInCategory]
+      const cur = list[currentIndicatorInCategory];
       const t = setTimeout(() => {
         setDisplayedIndicatorsByCategory((prev) => {
-          const arr = prev[currentCategoryKey] ?? []
-          // fail แทรกก่อน pass
+          const arr = prev[currentCategoryKey] ?? [];
           if (cur.status === "fail") {
-            const lastFailIdx = arr.findLastIndex((code) => {
-              const it = normalized.find((n) => n.code === code)
-              return it?.status === "fail"
-            })
-            const nx = [...arr]
-            nx.splice(lastFailIdx + 1, 0, cur.code)
-            return { ...prev, [currentCategoryKey]: nx }
+            // เดิมใช้ arr.findLastIndex(...) -> เปลี่ยนเป็น helper กันแครช SSR
+            const lastFailIdx = lastIndexWhere(arr, (code) => {
+              const it = normalized.find((n) => n.code === code);
+              return it?.status === "fail";
+            });
+            const nx = [...arr];
+            nx.splice(lastFailIdx + 1, 0, cur.code);
+            return { ...prev, [currentCategoryKey]: nx };
           }
-          return { ...prev, [currentCategoryKey]: [...arr, cur.code] }
-        })
-
-        if (cur.status === "fail") setDisplayedFailCount((v) => v + 1)
-        else setDisplayedPassCount((v) => v + 1)
+          return { ...prev, [currentCategoryKey]: [...arr, cur.code] };
+        });
 
         setTimeout(() => {
-          const el = indicatorRefs.current[cur.code]
-          el?.scrollIntoView({ behavior: "smooth", block: "center" })
-        }, 100)
+          const el = indicatorRefs.current[cur.code];
+          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 100);
 
-        if (cur.status === "fail") {
-          setTimeout(() => {
-            setHighlightedCode(cur.code)
-            setTimeout(() => setHighlightedCode(null), 800)
-          }, 500)
-        }
-
-        setTimeout(
-          () => setCurrentIndicatorInCategory((v) => v + 1),
-          cur.status === "fail" ? 1800 : 1200
-        )
-      }, 100)
-      return () => clearTimeout(t)
+        setTimeout(() => setCurrentIndicatorInCategory((v) => v + 1), cur.status === "fail" ? 1800 : 1200);
+      }, 80);
+      return () => clearTimeout(t);
     } else {
       setTimeout(() => {
-        setCurrentCategoryIndex((v) => v + 1)
-        setCurrentIndicatorInCategory(0)
-      }, 500)
+        setCurrentCategoryIndex((v) => v + 1);
+        setCurrentIndicatorInCategory(0);
+      }, 400);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -442,38 +434,67 @@ function ResultsContent() {
     displayedCategories,
     indicatorsByCategory,
     normalized,
-  ])
+  ]);
 
-  // เมื่อโหลดครบทุก category แล้ว → เลื่อนกลับขึ้นบน (เหมือนเดิม)
   useEffect(() => {
     if (!isLoading && currentCategoryIndex >= categories.length) {
       setTimeout(() => {
-        window.scrollTo({ top: 0, behavior: "smooth" })
-      }, 1000)
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 800);
     }
-  }, [isLoading, currentCategoryIndex])
+  }, [isLoading, currentCategoryIndex]);
 
   const toggleIndicator = (code: string) => {
-    const s = new Set(expandedIndicators)
-    s.has(code) ? s.delete(code) : s.add(code)
-    setExpandedIndicators(s)
-  }
+    const s = new Set(expandedIndicators);
+    s.has(code) ? s.delete(code) : s.add(code);
+    setExpandedIndicators(s);
+  };
 
-  const hasDetails = (ind: NormalizedIndicator) => codesWithDetails.has(ind.code)
+  const hasDetails = (ind: NormalizedIndicator) => codesWithDetails.has(ind.code);
 
   const getIndicatorIcon = (indicator: NormalizedIndicator) => {
-    // กลุ่มกรรมการ
-    if (indicator._categoryKey === "directorship-pattern") return <Crown className="h-4 w-4 text-purple-600" />
-    // ต่างชาติ
-    if (indicator._categoryKey === "foreigner-control") return <Globe className="h-4 w-4 text-blue-600" />
-    // ค่า default ตาม category ของแถว
-    return getCategoryIcon(indicator.category)
+    if (indicator._categoryKey === "directorship-pattern") return <Crown className="h-4 w-4 text-purple-600" />;
+    if (indicator._categoryKey === "foreigner-control") return <Globe className="h-4 w-4 text-blue-600" />;
+    return getCategoryIcon(indicator.category);
+  };
+
+  // ส่งออก JSON ที่กำลังแสดง
+  function handleExport() {
+    const payload = {
+      registration_id,
+      company_name: companyName,
+      summary: {
+        total: normalized.length,
+        pass: passCount,
+        fail: failCount,
+        failure_rate: normalized.length > 0 ? Math.round((failCount / normalized.length) * 100) : 0,
+      },
+      categories: categoryOrder.map((cat) => ({
+        id: cat,
+        name: categories.find((c) => c.id === cat)?.name ?? cat,
+        shown_codes: displayedIndicatorsByCategory[cat] ?? [],
+        items: (indicatorsByCategory[cat] ?? []).map((i) => ({
+          code: i.code.toUpperCase(),
+          name_th: i.name,
+          name_en: i.nameEn,
+          status: i.status,
+          description: i.description ?? null,
+        })),
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `clarifind-report-${registration_id || "company"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
-  if (isLoading) return <StepLoadingAnimation />
+  if (isLoading) return <StepLoadingAnimation />;
 
-  const failureRate =
-    normalized.length > 0 ? Math.round((failCount / normalized.length) * 100) : 0
+  const failureRate = normalized.length > 0 ? Math.round((failCount / normalized.length) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden animate-fade-in">
@@ -498,7 +519,12 @@ function ResultsContent() {
                 </Link>
               </Button>
             </div>
-            <Button variant="outline" size="sm" className="border-white/20 text-white hover:bg-white/10 bg-transparent">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              className="border-white/20 text-white hover:bg-white/10 bg-transparent"
+            >
               <FileText className="h-4 w-4 mr-2" />
               ส่งออกรายงาน
             </Button>
@@ -506,52 +532,11 @@ function ResultsContent() {
         </div>
       </header>
 
-      {/* Fixed summary bar (เหมือนเดิม) */}
-      <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[60] w-full max-w-[calc(100%-2rem)] md:max-w-[calc(1000px-4rem)] px-4">
-        <Card className="bg-gradient-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-semibold text-center text-white">สัดส่วนผลการวิเคราะห์ตัวชี้วัด</CardTitle>
-            <CardDescription className="text-center text-slate-300">
-              การแสดงสัดส่วนระหว่างตัวบ่งชี้ที่พบและไม่พบจากทั้งหมด {normalized.length} ตัวชี้วัด
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="relative h-16 bg-slate-700/30 rounded-lg overflow-hidden border border-white/10">
-                <div
-                  className="absolute left-0 top-0 h-full bg-gradient-to-r from-rose-500 to-rose-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-rose-500/20"
-                  style={{
-                    width: `${
-                      displayedFailCount + displayedPassCount > 0
-                        ? (displayedFailCount / (displayedFailCount + displayedPassCount)) * 100
-                        : 0
-                    }%`,
-                  }}
-                >
-                  {displayedFailCount > 0 && <span className="text-sm animate-pulse">พบตัวบ่งชี้ {displayedFailCount}</span>}
-                </div>
-                <div
-                  className="absolute right-0 top-0 h-full bg-gradient-to-l from-emerald-500 to-emerald-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-emerald-500/20"
-                  style={{
-                    width: `${
-                      displayedFailCount + displayedPassCount > 0
-                        ? (displayedPassCount / (displayedFailCount + displayedPassCount)) * 100
-                        : 0
-                    }%`,
-                  }}
-                >
-                  {displayedPassCount > 0 && <span className="text-sm animate-pulse">ไม่พบตัวบ่งชี้ {displayedPassCount}</span>}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="relative z-10">
         <div className="container mx-auto px-4 py-8">
           <div className="bg-slate-900/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-2xl">
-            {/* Company Header (เหมือนเดิม) */}
+
+            {/* Company Header */}
             <div className="mb-8">
               <div className="flex items-center space-x-3 mb-4">
                 <Building2 className="h-8 w-8 text-cyan-400" />
@@ -562,40 +547,114 @@ function ResultsContent() {
               </div>
             </div>
 
-            <div className="mb-[280px]"></div>
+            {/* Summary (ไม่ลอยตาม scroll) */}
+            <div className="mx-auto w-full max-w-[1000px] px-4 mb-6">
+              <Card className="bg-gradient-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg font-semibold text-center text-white">สัดส่วนผลการวิเคราะห์ตัวชี้วัด</CardTitle>
+                  <CardDescription className="text-center text-slate-300">
+                    การแสดงสัดส่วนระหว่างตัวบ่งชี้ที่พบและไม่พบจากทั้งหมด {normalized.length} ตัวชี้วัด
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="relative h-16 bg-slate-700/30 rounded-lg overflow-hidden border border-white/10">
+                      <div
+                        className="absolute left-0 top-0 h-full bg-gradient-to-r from-rose-500 to-rose-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-rose-500/20"
+                        style={{
+                          width: `${
+                            displayedFailCount + displayedPassCount > 0
+                              ? (displayedFailCount / (displayedFailCount + displayedPassCount)) * 100
+                              : 0
+                          }%`,
+                        }}
+                      >
+                        {displayedFailCount > 0 && <span className="text-sm animate-pulse">พบตัวบ่งชี้ {displayedFailCount}</span>}
+                      </div>
+                      <div
+                        className="absolute right-0 top-0 h-full bg-gradient-to-l from-emerald-500 to-emerald-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-emerald-500/20"
+                        style={{
+                          width: `${
+                            displayedFailCount + displayedPassCount > 0
+                              ? (displayedPassCount / (displayedFailCount + displayedPassCount)) * 100
+                              : 0
+                          }%`,
+                        }}
+                      >
+                        {displayedPassCount > 0 && <span className="text-sm animate-pulse">ไม่พบตัวบ่งชี้ {displayedPassCount}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 text-sm text-slate-300 justify-center">
+                      <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">พบ {failCount}</Badge>
+                      <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">ไม่พบ {passCount}</Badge>
+                      <Badge variant="outline" className="border-white/20 text-slate-300">รวม {normalized.length}</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Filter bar */}
+            <Card className="mb-8 bg-gradient-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold text-white">ตัวกรองการแสดงผล</CardTitle>
+                <CardDescription className="text-slate-300">เลือกดูเฉพาะหมวดที่สนใจหรือสถานะที่ต้องการ</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-slate-300 text-sm">กรองการแสดงผล:</div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={filter === "all" ? "default" : "outline"}
+                      className={filter === "all" ? "bg-white/10" : "border-white/20 text-slate-200 hover:bg-white/10"}
+                      onClick={() => setFilter("all")}
+                    >
+                      ทั้งหมด
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={filter === "fail" ? "default" : "outline"}
+                      className={filter === "fail" ? "bg-rose-600/40" : "border-white/20 text-slate-200 hover:bg-white/10"}
+                      onClick={() => setFilter("fail")}
+                    >
+                      พบตัวบ่งชี้
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={filter === "pass" ? "default" : "outline"}
+                      className={filter === "pass" ? "bg-emerald-600/40" : "border-white/20 text-slate-200 hover:bg-white/10"}
+                      onClick={() => setFilter("pass")}
+                    >
+                      ไม่พบตัวบ่งชี้
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Category sections */}
             <div className="space-y-8">
               {categories.map((category) => {
-                const isDisplayed = displayedCategories.includes(category.id)
-                const categoryCodes = displayedIndicatorsByCategory[category.id] ?? []
-                const IconComponent = category.icon
+                if (!displayedCategories.includes(category.id)) return null;
+                const IconComponent = category.icon;
 
-                if (!isDisplayed) return null
-
-                // split into fail & pass within this category
-                const fullList = indicatorsByCategory[category.id as CategoryId]
-                const failIndicators = categoryCodes
+                const fullList = indicatorsByCategory[category.id as CategoryId];
+                const codesShown = displayedIndicatorsByCategory[category.id] ?? [];
+                const failIndicators = codesShown
                   .map((code) => fullList.find((i) => i.code === code))
-                  .filter((x): x is NormalizedIndicator => !!x && x.status === "fail")
-
-                const passIndicators = categoryCodes
+                  .filter((x): x is NormalizedIndicator => !!x && x.status === "fail");
+                const passIndicators = codesShown
                   .map((code) => fullList.find((i) => i.code === code))
-                  .filter((x): x is NormalizedIndicator => !!x && x.status === "pass")
+                  .filter((x): x is NormalizedIndicator => !!x && x.status === "pass");
 
-                const showFailColumn = filter === "all" || filter === "fail"
-                const showPassColumn = filter === "all" || filter === "pass"
-
-                if ((filter === "fail" && failIndicators.length === 0) || (filter === "pass" && passIndicators.length === 0)) {
-                  return null
-                }
+                const showFailColumn = filter === "all" || filter === "fail";
+                const showPassColumn = filter === "all" || filter === "pass";
+                if ((filter === "fail" && failIndicators.length === 0) || (filter === "pass" && passIndicators.length === 0)) return null;
 
                 return (
-                  <div
-                    key={category.id}
-                    ref={(el) => (categoryRefs.current[category.id] = el)}
-                    className="animate-fade-in"
-                  >
+                  <div key={category.id} ref={(el) => (categoryRefs.current[category.id] = el)} className="animate-fade-in">
                     <Card className="bg-slate-800/50 backdrop-blur-sm border-white/10 shadow-xl">
                       <CardHeader>
                         <div className="flex items-center space-x-3 mb-2">
@@ -607,7 +666,7 @@ function ResultsContent() {
                             <CardDescription className="text-slate-300">{category.nameTh}</CardDescription>
                           </div>
                           <Badge variant="outline" className={`ml-auto ${category.color} border-current`}>
-                            {categoryCodes.length} ตัวชี้วัด
+                            {codesShown.length} ตัวชี้วัด
                           </Badge>
                         </div>
                       </CardHeader>
@@ -620,9 +679,7 @@ function ResultsContent() {
                               <div className="flex items-center space-x-2 mb-4">
                                 <div className="h-8 w-1 bg-rose-500 rounded-full"></div>
                                 <h3 className="text-lg font-semibold text-rose-400">พบตัวบ่งชี้</h3>
-                                <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">
-                                  {failIndicators.length}
-                                </Badge>
+                                <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">{failIndicators.length}</Badge>
                               </div>
 
                               {failIndicators.length === 0 ? (
@@ -631,24 +688,18 @@ function ResultsContent() {
                                 </div>
                               ) : (
                                 failIndicators.map((indicator) => {
-                                  const isHighlighted = highlightedCode === indicator.code
-                                  const displayNo = indicatorDisplayNumbers[indicator.code]
-
+                                  const displayNo = indicatorDisplayNumbers[indicator.code];
+                                  const isHighlighted = highlightedCode === indicator.code;
                                   return (
                                     <div
                                       key={indicator.code}
                                       ref={(el) => (indicatorRefs.current[indicator.code] = el)}
-                                      className={`flex items-start space-x-4 p-4 border rounded-lg backdrop-blur-sm transition-all duration-700 ease-out bg-rose-900/20 border-rose-500/30 shadow-lg shadow-rose-500/10 ${
-                                        isHighlighted ? "ring-4 ring-rose-400/50 shadow-2xl shadow-rose-500/30 scale-[1.02]" : ""
-                                      }`}
+                                      className={`flex items-start space-x-4 p-4 border rounded-lg backdrop-blur-sm transition-all duration-700 ease-out bg-rose-900/20 border-rose-500/30 shadow-lg shadow-rose-500/10 ${isHighlighted ? "ring-4 ring-rose-400/50 shadow-2xl shadow-rose-500/30 scale-[1.02]" : ""}`}
                                       style={{ animation: "fade-slide-in 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
                                     >
                                       <div className="flex-shrink-0 mt-0.5">
                                         <div className="flex items-center space-x-2">
-                                          <Badge
-                                            variant="secondary"
-                                            className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10"
-                                          >
+                                          <Badge variant="secondary" className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10">
                                             {displayNo}
                                           </Badge>
                                           {getStatusIcon(indicator.status)}
@@ -659,47 +710,25 @@ function ResultsContent() {
                                         <div className="flex items-center justify-between mb-2">
                                           <div className="flex items-center space-x-2">
                                             {getIndicatorIcon(indicator)}
-                                            <h4 className="font-medium text-white text-sm">{indicator.nameEn || indicator.code}</h4>
+                                            <h4 className="font-medium text-white text-sm">{indicator.nameEn || indicator.code.toUpperCase()}</h4>
                                           </div>
-                                          <div className="flex items-center space-x-2">
-                                            {hasDetails(indicator) && (
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => toggleIndicator(indicator.code)}
-                                                className="h-6 w-6 p-0 text-white hover:bg-white/10"
-                                              >
-                                                {expandedIndicators.has(indicator.code) ? (
-                                                  <ChevronUp className="h-4 w-4" />
-                                                ) : (
-                                                  <ChevronDown className="h-4 w-4" />
-                                                )}
-                                              </Button>
-                                            )}
-                                          </div>
+                                          {hasDetails(indicator) && (
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => toggleIndicator(indicator.code)}
+                                              className="h-6 w-6 p-0 text-white hover:bg-white/10"
+                                            >
+                                              {expandedIndicators.has(indicator.code) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            </Button>
+                                          )}
                                         </div>
 
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
-                                        <p className="text-xs text-slate-400">
-                                          {indicator.description || "—"}
-                                          {/* แจ้งถ้าไม่มีข้อมูลจาก backend */}
-                                          {indicator.name.startsWith("(ไม่มีข้อมูล)") && (
-                                            <span className="ml-1 text-rose-300">• ไม่มีข้อมูลจาก backend</span>
-                                          )}
-                                        </p>
-
-                                        {/* ตัวอย่าง expand (กรณีมีรายละเอียดจริง) */}
-                                        {expandedIndicators.has(indicator.code) && indicator.details && (
-                                          <div className="mt-3 p-3 bg-rose-900/30 border border-rose-500/30 rounded-md backdrop-blur-sm animate-slide-down">
-                                            <h5 className="font-medium text-rose-300 mb-2">รายละเอียดเพิ่มเติม:</h5>
-                                            <pre className="text-xs text-rose-100 whitespace-pre-wrap">
-                                              {JSON.stringify(indicator.details, null, 2)}
-                                            </pre>
-                                          </div>
-                                        )}
+                                        <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
                                       </div>
                                     </div>
-                                  )
+                                  );
                                 })
                               )}
                             </div>
@@ -711,9 +740,7 @@ function ResultsContent() {
                               <div className="flex items-center space-x-2 mb-4">
                                 <div className="h-8 w-1 bg-emerald-500 rounded-full"></div>
                                 <h3 className="text-lg font-semibold text-emerald-400">ไม่พบตัวบ่งชี้</h3>
-                                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
-                                  {passIndicators.length}
-                                </Badge>
+                                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">{passIndicators.length}</Badge>
                               </div>
 
                               {passIndicators.length === 0 ? (
@@ -722,7 +749,7 @@ function ResultsContent() {
                                 </div>
                               ) : (
                                 passIndicators.map((indicator) => {
-                                  const displayNo = indicatorDisplayNumbers[indicator.code]
+                                  const displayNo = indicatorDisplayNumbers[indicator.code];
                                   return (
                                     <div
                                       key={indicator.code}
@@ -732,10 +759,7 @@ function ResultsContent() {
                                     >
                                       <div className="flex-shrink-0 mt-0.5">
                                         <div className="flex items-center space-x-2">
-                                          <Badge
-                                            variant="secondary"
-                                            className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10"
-                                          >
+                                          <Badge variant="secondary" className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10">
                                             {displayNo}
                                           </Badge>
                                           {getStatusIcon(indicator.status)}
@@ -743,22 +767,15 @@ function ResultsContent() {
                                       </div>
 
                                       <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between mb-2">
-                                          <div className="flex items-center space-x-2">
-                                            {getIndicatorIcon(indicator)}
-                                            <h4 className="font-medium text-white text-sm">{indicator.nameEn || indicator.code}</h4>
-                                          </div>
+                                        <div className="flex items-center space-x-2 mb-2">
+                                          {getIndicatorIcon(indicator)}
+                                          <h4 className="font-medium text-white text-sm">{indicator.nameEn || indicator.code.toUpperCase()}</h4>
                                         </div>
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
-                                        <p className="text-xs text-slate-400">
-                                          {indicator.description || "—"}
-                                          {indicator.name.startsWith("(ไม่มีข้อมูล)") && (
-                                            <span className="ml-1 text-rose-300">• ไม่มีข้อมูลจาก backend</span>
-                                          )}
-                                        </p>
+                                        <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
                                       </div>
                                     </div>
-                                  )
+                                  );
                                 })
                               )}
                             </div>
@@ -767,7 +784,7 @@ function ResultsContent() {
                       </CardContent>
                     </Card>
                   </div>
-                )
+                );
               })}
             </div>
           </div>
@@ -775,43 +792,12 @@ function ResultsContent() {
       </div>
 
       <style jsx>{`
-        @keyframes slide-down {
-          from {
-            opacity: 0;
-            max-height: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            max-height: 1000px;
-            transform: translateY(0);
-          }
-        }
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-        @keyframes fade-slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(30px) scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        .animate-slide-down {
-          animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .animate-fade-in {
-          animation: fade-in 0.8s ease-out;
-        }
+        @keyframes slide-down { from { opacity: 0; max-height: 0; transform: translateY(-10px); } to { opacity: 1; max-height: 1000px; transform: translateY(0); } }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fade-slide-in { from { opacity: 0; transform: translateY(30px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .animate-slide-down { animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .animate-fade-in { animation: fade-in 0.8s ease-out; }
       `}</style>
     </div>
-  )
+  );
 }

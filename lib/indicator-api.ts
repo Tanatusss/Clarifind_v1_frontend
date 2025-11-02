@@ -1,64 +1,105 @@
 // src/lib/indicator-api.ts
-import { apiFetch } from "./api"
+import { apiFetch } from "./api";
 
-/** ค่ารายตัวของแต่ละตัวชี้วัด (เหมือนที่ใช้ตอน mock) */
 export type IndicatorKV = {
-  code: string
-  value: boolean
-}
+  code: string;
+  value: boolean;
+  name_th?: string | null;
+  name_en?: string | null;
+  description?: string | null;
+};
 
-/** สรุปทั้งหมดสำหรับบริษัทหนึ่ง (เหมือน mock) */
 export type IndicatorSummary = {
-  registration_id: string
-  company_id: number
-  indicators: IndicatorKV[]        // ทุกตัว 1..23 พร้อม value true/false
-  found_count: number              // นับที่ value=true
-  total: number                    // 23
-  coverage_pct: number             // 0..100
-}
+  registration_id: string;
+  company_id: number;
+  company_name?: string | null;
+  indicators: IndicatorKV[];   // UI ใช้รายการนี้
+  found_count: number;
+  total: number;
+  coverage_pct: number;
+};
 
-/** สำหรับ true-only (เหมือน mock: คืนมาเฉพาะตัวที่ value=true) */
-export type IndicatorTrueOnly = {
-  registration_id: string
-  company_id: number
-  indicators: { code: string }[]   // รายการ code ที่ผ่านเงื่อนไข (true)
-}
+/** ---------- เส้นจริง ---------- */
+type BackendIndicator = {
+  indicator: string;     // e.g. "AD10000"
+  name_th: string | null;
+  name_en: string | null;
+  flag: number | null;   // 0/1/null
+  updated_at: string | null;
+};
+type BackendResp = {
+  company: {
+    company_id: number;
+    registration_id: string;
+    name_th: string | null;
+    name_en: string | null;
+  };
+  indicators: BackendIndicator[];
+};
 
-/** ดึงสรุปทั้งหมดของบริษัท */
-export async function fetchIndicatorSummary(registration_id: string) {
-  // backend: GET /v1/indicator/summary?registration_id=XXXX
-  return apiFetch<IndicatorSummary>(`/v1/indicator/summary?registration_id=${encodeURIComponent(registration_id)}`)
-}
+/** ตัวช่วย normalize code → ให้เป็นล่างทั้งหมด (UI ส่วนใหญ่สะดวกแบบนี้) */
+const normalizeCode = (code: string) => code?.toLowerCase?.() ?? code;
 
-/** ดึงเฉพาะตัวที่ value=true (true-only) */
-export async function fetchIndicatorTrueOnly(registration_id: string) {
-  // backend: GET /v1/indicator/true-only?registration_id=XXXX
-  return apiFetch<IndicatorTrueOnly>(`/v1/indicator/true-only?registration_id=${encodeURIComponent(registration_id)}`)
-}
+/** นิยามว่า “ตัวที่นับเป็นดัชนี” คือ code ตัวอักษร + ตัวเลข 5 หลัก (เช่น AD10000) */
+const isRealIndicator = (code: string) => /^[A-Z]+[0-9]{5}$/i.test(code);
 
-/* -----------------------------------------------------------
-   (ออปชัน) Helper: รวมผล summary + true-only
-   - คืน allIndicators = [{code, value}] ครบทุกตัว (จาก summary)
-   - คืน failIndicators = เฉพาะที่ value=true (จาก true-only)
-   - คืน passIndicators = value=false (จาก summary \ true-only)
-   ใช้สะดวกเวลา map แสดงผลหน้ารายงาน
------------------------------------------------------------- */
-export async function getIndicatorsMerged(registration_id: string) {
-  const [summary, trueOnly] = await Promise.all([
-    fetchIndicatorSummary(registration_id),
-    fetchIndicatorTrueOnly(registration_id),
-  ])
+/** แปลงทรงหลังบ้าน → IndicatorSummary */
+function transformBackendToSummary(json: BackendResp): IndicatorSummary {
+  const indicators: IndicatorKV[] = (json.indicators || []).map((it) => ({
+    code: normalizeCode(it.indicator),
+    value: it.flag === 1,
+    name_th: it.name_th,
+    name_en: it.name_en,
+    description: null, // ถ้ามีคอลัมน์คำอธิบายค่อยมาเติมทีหลัง
+  }));
 
-  const trueSet = new Set((trueOnly?.indicators ?? []).map(i => i.code))
-
-  const allIndicators = summary.indicators
-  const failIndicators = allIndicators.filter(i => trueSet.has(i.code))
-  const passIndicators = allIndicators.filter(i => !trueSet.has(i.code))
+  const real = (json.indicators || []).filter((it) => isRealIndicator(it.indicator));
+  const total = real.length;
+  const found_count = real.filter((it) => it.flag === 1).length;
+  const coverage_pct = total > 0 ? Number(((found_count / total) * 100).toFixed(1)) : 0;
 
   return {
-    summary,          // มี found_count, total, coverage_pct ครบ
-    allIndicators,    // [{code, value}] ครบ 23
-    failIndicators,   // value=true
-    passIndicators,   // value=false
+    registration_id: json.company?.registration_id,
+    company_id: json.company?.company_id,
+    company_name: json.company?.name_th || json.company?.name_en || null,
+    indicators,
+    found_count,
+    total,
+    coverage_pct,
+  };
+}
+
+export async function fetchIndicatorSummary(registration_id: string) {
+  const raw = await apiFetch<BackendResp>(
+    `/v1/indicators/summary?registration_id=${encodeURIComponent(registration_id)}`
+  );
+  return transformBackendToSummary(raw);
+}
+
+/** ---------- Prefetch (ใช้กับหน้า Loading → Results) ---------- */
+const SS_SUMMARY = "CF_PREFETCH_SUMMARY";
+
+export function readPrefetchedSummary(): IndicatorSummary | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(sessionStorage.getItem(SS_SUMMARY) || "null");
+  } catch {
+    return null;
   }
+}
+
+export function writePrefetchedSummary(summary: IndicatorSummary) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(SS_SUMMARY, JSON.stringify(summary));
+}
+
+export function clearPrefetchedSummary() {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(SS_SUMMARY);
+}
+
+export async function prefetchSummary(registration_id: string) {
+  const summary = await fetchIndicatorSummary(registration_id);
+  writePrefetchedSummary(summary);
+  return summary;
 }
