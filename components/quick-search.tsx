@@ -8,18 +8,16 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "react-toastify";
 import { resolveCompany } from "@/lib/companyApi";
-import { prefetchSummary } from "@/lib/indicator-api"; 
-import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { prefetchSummary } from "@/lib/indicator-api";
 import { ANALYSIS_TOTAL_MS } from "@/components/step-loading-animation";
 
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 export function QuickSearch() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchType, setSearchType] =
     useState<"company-name" | "registration-number">("registration-number");
   const [isLoading, setIsLoading] = useState(false);
-  const [showOverlay, setShowOverlay] = useState(false);
 
   const router = useRouter();
   const { user } = useAuth() as { user: any; token?: string };
@@ -30,20 +28,25 @@ export function QuickSearch() {
     if (!user) return router.push("/login");
 
     const q = searchQuery.trim();
-    if (!q) return toast.warning("กรุณากรอกคำค้นหา", { theme: "colored" });
+    if (!q)
+      return toast.warning("กรุณากรอกคำค้นหา", { theme: "colored" });
 
     if (searchType === "company-name") {
-      return toast.info("ค้นหาด้วยชื่อบริษัทยังไม่พร้อมใช้งาน (Coming soon...)", { theme: "colored" });
+      return toast.info("ค้นหาด้วยชื่อบริษัทยังไม่พร้อมใช้งาน (Coming soon...)", {
+        theme: "colored",
+      });
     }
 
     if (!/^\d{8,13}$/.test(q)) {
-      return toast.warning("รูปแบบเลขทะเบียนไม่ถูกต้อง (ควรเป็นตัวเลข 8–13 หลัก)", { theme: "colored" });
+      return toast.warning("รูปแบบเลขทะเบียนไม่ถูกต้อง (ควรเป็นตัวเลข 8–13 หลัก)", {
+        theme: "colored",
+      });
     }
 
     try {
       setIsLoading(true);
 
-      // 1) ตรวจว่ามีบริษัทจริงก่อน
+      // 🔹 ตรวจสอบบริษัท
       const res = await resolveCompany(q);
       const company = res?.company;
       if (!company?.registration_id) {
@@ -51,18 +54,21 @@ export function QuickSearch() {
       }
       sessionStorage.setItem("CF_LAST_COMPANY", JSON.stringify(company));
 
-      // 2) เปิด overlay แล้วรอ “พรีเฟตช์ summary + เวลาอนิเมชัน”
-      setShowOverlay(true);
+      // 🔹 แจ้ง GlobalOverlayManager ให้เปิด overlay
+      window.dispatchEvent(new CustomEvent("clarifind:analyze-start"));
+
+      // 🔹 พรีโหลดข้อมูลและรอเวลา animation
       await Promise.all([
-        prefetchSummary(company.registration_id), // ✅ เฉพาะ summary
-        sleep(ANALYSIS_TOTAL_MS),                // ให้ตรงกับ mock
+        prefetchSummary(company.registration_id),
+        sleep(ANALYSIS_TOTAL_MS),
       ]);
 
-      // 3) ไปหน้า results
-      router.push(`/results?registration_id=${encodeURIComponent(company.registration_id)}&prefetched=1`);
+      // 🔹 เปลี่ยนหน้า (overlay จะ fade-out เอง)
+      router.push(
+        `/results?registration_id=${encodeURIComponent(company.registration_id)}&prefetched=1`
+      );
     } catch (err: any) {
       console.error(err);
-      setShowOverlay(false);
       if (err?.status === 401) {
         toast.error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", { theme: "colored" });
         router.push("/login");
@@ -77,14 +83,22 @@ export function QuickSearch() {
   };
 
   const searchTypes = [
-    { id: "company-name" as const, label: "ชื่อบริษัท", icon: Building2, color: "primary" },
-    { id: "registration-number" as const, label: "เลขทะเบียนนิติบุคคล", icon: Hash, color: "cyan" },
+    {
+      id: "company-name" as const,
+      label: "ชื่อบริษัท",
+      icon: Building2,
+      color: "primary",
+    },
+    {
+      id: "registration-number" as const,
+      label: "เลขทะเบียนนิติบุคคล",
+      icon: Hash,
+      color: "cyan",
+    },
   ];
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <LoadingOverlay open={showOverlay} />
-
       {/* ปุ่มเลือกประเภทการค้นหา */}
       <div className="flex justify-center gap-3 mb-6">
         {searchTypes.map((type) => {
@@ -102,8 +116,22 @@ export function QuickSearch() {
                   : "border-border/30 hover:border-border/50"
               }`}
             >
-              <Icon className={`h-5 w-5 ${isActive ? (type.color === "cyan" ? "text-cyan-400" : "text-primary") : "text-foreground/60"}`} />
-              <span className={`text-sm font-medium ${isActive ? "text-foreground" : "text-foreground/60"}`}>{type.label}</span>
+              <Icon
+                className={`h-5 w-5 ${
+                  isActive
+                    ? type.color === "cyan"
+                      ? "text-cyan-400"
+                      : "text-primary"
+                    : "text-foreground/60"
+                }`}
+              />
+              <span
+                className={`text-sm font-medium ${
+                  isActive ? "text-foreground" : "text-foreground/60"
+                }`}
+              >
+                {type.label}
+              </span>
             </button>
           );
         })}
@@ -116,14 +144,22 @@ export function QuickSearch() {
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-foreground/40" />
               <Input
+                id="reg-id"
                 type="text"
-                placeholder={`ค้นหา${searchTypes.find((t) => t.id === searchType)?.label}...`}
+                placeholder={`ค้นหา${
+                  searchTypes.find((t) => t.id === searchType)?.label
+                }...`}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-12 pr-4 py-6 text-lg bg-background/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/50 rounded-xl"
               />
             </div>
-            <Button type="submit" size="lg" disabled={isLoading} className="px-8 py-6 text-base bg-primary hover:bg-primary/90 shadow-lg shadow-primary/30 rounded-xl">
+            <Button
+              type="submit"
+              size="lg"
+              disabled={isLoading}
+              className="px-8 py-6 text-base bg-primary hover:bg-primary/90 shadow-lg shadow-primary/30 rounded-xl"
+            >
               {isLoading ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
@@ -139,7 +175,9 @@ export function QuickSearch() {
         </div>
 
         <p className="text-center text-sm text-foreground/50 mt-4">
-          {!user ? "กรุณาเข้าสู่ระบบเพื่อค้นหาและวิเคราะห์ข้อมูล" : "ค้นหาและวิเคราะห์ข้อมูลการปฏิบัติตามกฎระเบียบด้วย 23 ตัวบ่งชี้"}
+          {!user
+            ? "กรุณาเข้าสู่ระบบเพื่อค้นหาและวิเคราะห์ข้อมูล"
+            : "ค้นหาและวิเคราะห์ข้อมูลการปฏิบัติตามกฎระเบียบด้วย 23 ตัวบ่งชี้"}
         </p>
       </form>
     </div>

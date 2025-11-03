@@ -4,8 +4,10 @@ const STORAGE_KEY = "cf_token";
 
 export function setToken(t: string | null) {
   _token = t;
-  if (t) localStorage.setItem(STORAGE_KEY, t);
-  else localStorage.removeItem(STORAGE_KEY);
+  if (typeof window !== "undefined") {
+    if (t) localStorage.setItem(STORAGE_KEY, t);
+    else localStorage.removeItem(STORAGE_KEY);
+  }
 }
 
 export function getToken(): string | null {
@@ -14,16 +16,28 @@ export function getToken(): string | null {
   return _token;
 }
 
-// ✅ อ่านจาก .env โดยตรง
 function apiBase() {
-  return process.env.NEXT_PUBLIC_API_BASE || "";
+  return (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
 }
 
 type ApiOpts = RequestInit & { skipAuth?: boolean };
 
 export async function apiFetch<T = any>(path: string, opts: ApiOpts = {}): Promise<T> {
   const base = apiBase();
-  const url = `${base}${path}`.replace(/([^:]\/)\/+/g, "$1");
+
+  // 1) รองรับ absolute URL (http/https) → ไม่ต่อ BASE
+  const url = /^https?:\/\//i.test(path)
+    ? path
+    : (() => {
+        if (!base) {
+          // กันเคสลืมตั้ง env หรือยังไม่ restart dev server
+          throw new Error(
+            'API base URL is empty. Please set NEXT_PUBLIC_API_BASE (e.g. "http://localhost:4545") and restart the dev server.'
+          );
+        }
+        const p = path.startsWith("/") ? path : `/${path}`;
+        return `${base}${p}`;
+      })();
 
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -40,17 +54,21 @@ export async function apiFetch<T = any>(path: string, opts: ApiOpts = {}): Promi
     ...opts,
     headers,
     cache: "no-store",
+    // mode: "cors",         // ใช้เมื่อ backend เปิด CORS และอยากบังคับโหมด
+    // credentials: "omit",  // ใช้ cookie ก็เปลี่ยนเป็น "include"
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     const err: any = new Error(text || res.statusText);
     err.status = res.status;
-    try {
-      err.data = JSON.parse(text);
-    } catch {}
+    try { err.data = JSON.parse(text); } catch {}
     throw err;
   }
+
+  // 2) กัน response ไม่ใช่ JSON (เช่น 204)
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.toLowerCase().includes("application/json")) return undefined as T;
 
   return (await res.json()) as T;
 }

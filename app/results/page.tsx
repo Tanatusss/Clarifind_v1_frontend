@@ -40,6 +40,33 @@ import {
   clearPrefetchedSummary,
   IndicatorSummary,
 } from "@/lib/indicator-api";
+import { IndicatorDetail } from "@/components/indicators/IndicatorDetail";
+
+// กล่องไอคอนมาตรฐาน: บังคับ svg ข้างในให้ h-5 w-5 เสมอ
+const IconBox = ({
+  children,
+  colorClass = "text-slate-300", // ตั้งสีที่นี่ (ไอคอนใช้ currentColor)
+  bgClass = "bg-white/5",
+}: {
+  children: React.ReactNode;
+  colorClass?: string;
+  bgClass?: string;
+}) => (
+  <div
+    className={`w-6 h-6 grid place-items-center rounded-md ${bgClass} ${colorClass}
+                [&>svg]:h-5 [&>svg]:w-5 [&>svg]:stroke-current`}
+  >
+    {children}
+  </div>
+);
+
+/** 🔧 FIX ขนาดไอคอนให้เท่ากันเสมอ */
+const UniformIcon = ({ Icon, className = "" }: { Icon: any; className?: string }) => (
+  <div className="w-5 h-5 flex items-center justify-center">
+    {/* กำหนด h-4 w-4 และ normalize stroke เพื่อให้ทุกอันเท่ากัน */}
+    <Icon className={`h-4 w-4 stroke-[1.5] ${className}`} />
+  </div>
+);
 
 /* ---------------- Types/Maps ---------------- */
 type CategoryId =
@@ -99,7 +126,11 @@ const codeToCategoryKey: Record<string, CategoryId> = {
   i30000: "high-risk-industry",
 };
 
-const codesWithDetails = new Set<string>(["ad10000", "ad20000", "owc10000", "di10000", "di20000", "bo49000"]);
+const codesWithDetails = new Set<string>([
+  "ad10000", "ad20000", "au10000", "au20000", "c10000", "d10000", "d40000", "d60000", "d70000",
+  "d80000", "f10000", "h20000", "h30000", "h40000", "h70000", "i10000", "i20000", "i30000",
+  "s20000", "s30000", "s50000", "u10000", "u30000",
+]);
 
 const categoryOrder: CategoryId[] = [
   "shared-resources",
@@ -119,17 +150,19 @@ const categories = [
   { id: "high-risk-industry" as const, name: "High Risk Industry", nameTh: "อุตสาหกรรมเสี่ยงสูง", icon: AlertTriangle, color: "text-red-400", bgColor: "bg-red-500/10", borderColor: "border-red-500/30" },
 ];
 
+/** ใช้ UniformIcon เพื่อให้ทุกไอคอนขนาดเท่ากัน */
 const getCategoryIcon = (category: NormalizedIndicator["category"]) => {
   switch (category) {
-    case "Ownership": return <Users className="h-4 w-4 text-blue-600" />;
-    case "Governance": return <Shield className="h-4 w-4 text-purple-600" />;
-    case "Compliance": return <Scale className="h-4 w-4 text-orange-600" />;
-    case "Risk": return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
-    case "Financial": return <DollarSign className="h-4 w-4 text-green-600" />;
-    case "Assets": return <Home className="h-4 w-4 text-indigo-600" />;
-    default: return <Building2 className="h-4 w-4 text-gray-600" />;
+    case "Ownership":  return <UniformIcon Icon={Users} className="text-blue-600" />;
+    case "Governance": return <UniformIcon Icon={Shield} className="text-purple-600" />;
+    case "Compliance": return <UniformIcon Icon={Scale} className="text-orange-600" />;
+    case "Risk":       return <UniformIcon Icon={AlertTriangle} className="text-yellow-600" />;
+    case "Financial":  return <UniformIcon Icon={DollarSign} className="text-green-600" />;
+    case "Assets":     return <UniformIcon Icon={Home} className="text-indigo-600" />;
+    default:           return <UniformIcon Icon={Building2} className="text-gray-600" />;
   }
 };
+
 const getStatusIcon = (status: "pass" | "fail") =>
   status === "pass" ? <Circle className="h-5 w-5 text-green-600 fill-green-600" /> : <Circle className="h-5 w-5 text-red-600 fill-red-600" />;
 
@@ -307,7 +340,7 @@ function ResultsContent() {
         }
 
         if (summary) {
-          companyNameLocal = summary.company_name ?? null;
+          companyNameLocal = (summary as any).company_name ?? null;
           const merged = normalizeFromSummary(summary);
           setNormalized(merged);
         } else {
@@ -450,11 +483,12 @@ function ResultsContent() {
     setExpandedIndicators(s);
   };
 
-  const hasDetails = (ind: NormalizedIndicator) => codesWithDetails.has(ind.code);
+  const hasDetails = (indicator: NormalizedIndicator) =>
+    codesWithDetails.has(indicator.code.toLowerCase());
 
   const getIndicatorIcon = (indicator: NormalizedIndicator) => {
-    if (indicator._categoryKey === "directorship-pattern") return <Crown className="h-4 w-4 text-purple-600" />;
-    if (indicator._categoryKey === "foreigner-control") return <Globe className="h-4 w-4 text-blue-600" />;
+    if (indicator._categoryKey === "directorship-pattern") return <UniformIcon Icon={Crown} className="text-purple-600" />;
+    if (indicator._categoryKey === "foreigner-control") return <UniformIcon Icon={Globe} className="text-blue-600" />;
     return getCategoryIcon(indicator.category);
   };
 
@@ -508,7 +542,7 @@ function ResultsContent() {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity cursor-pointer">
-                <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                <span className="text-2xl font-bold bg-linear-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent">
                   ClariFind
                 </span>
               </Link>
@@ -547,9 +581,9 @@ function ResultsContent() {
               </div>
             </div>
 
-            {/* Summary (ไม่ลอยตาม scroll) */}
+            {/* Summary */}
             <div className="mx-auto w-full max-w-[1000px] px-4 mb-6">
-              <Card className="bg-gradient-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
+              <Card className="bg-linear-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
                 <CardHeader className="pb-4">
                   <CardTitle className="text-lg font-semibold text-center text-white">สัดส่วนผลการวิเคราะห์ตัวชี้วัด</CardTitle>
                   <CardDescription className="text-center text-slate-300">
@@ -560,25 +594,23 @@ function ResultsContent() {
                   <div className="space-y-4">
                     <div className="relative h-16 bg-slate-700/30 rounded-lg overflow-hidden border border-white/10">
                       <div
-                        className="absolute left-0 top-0 h-full bg-gradient-to-r from-rose-500 to-rose-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-rose-500/20"
+                        className="absolute left-0 top-0 h-full bg-linear-to-r from-rose-500 to-rose-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-rose-500/20"
                         style={{
-                          width: `${
-                            displayedFailCount + displayedPassCount > 0
-                              ? (displayedFailCount / (displayedFailCount + displayedPassCount)) * 100
-                              : 0
-                          }%`,
+                          width: `${displayedFailCount + displayedPassCount > 0
+                            ? (displayedFailCount / (displayedFailCount + displayedPassCount)) * 100
+                            : 0
+                            }%`,
                         }}
                       >
                         {displayedFailCount > 0 && <span className="text-sm animate-pulse">พบตัวบ่งชี้ {displayedFailCount}</span>}
                       </div>
                       <div
-                        className="absolute right-0 top-0 h-full bg-gradient-to-l from-emerald-500 to-emerald-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-emerald-500/20"
+                        className="absolute right-0 top-0 h-full bg-linear-to-l from-emerald-500 to-emerald-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-emerald-500/20"
                         style={{
-                          width: `${
-                            displayedFailCount + displayedPassCount > 0
-                              ? (displayedPassCount / (displayedFailCount + displayedPassCount)) * 100
-                              : 0
-                          }%`,
+                          width: `${displayedFailCount + displayedPassCount > 0
+                            ? (displayedPassCount / (displayedFailCount + displayedPassCount)) * 100
+                            : 0
+                            }%`,
                         }}
                       >
                         {displayedPassCount > 0 && <span className="text-sm animate-pulse">ไม่พบตัวบ่งชี้ {displayedPassCount}</span>}
@@ -596,7 +628,7 @@ function ResultsContent() {
             </div>
 
             {/* Filter bar */}
-            <Card className="mb-8 bg-gradient-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
+            <Card className="mb-8 bg-linear-to-br from-slate-800/95 to-slate-800/90 backdrop-blur-xl border-white/20 shadow-2xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-semibold text-white">ตัวกรองการแสดงผล</CardTitle>
                 <CardDescription className="text-slate-300">เลือกดูเฉพาะหมวดที่สนใจหรือสถานะที่ต้องการ</CardDescription>
@@ -654,7 +686,7 @@ function ResultsContent() {
                 if ((filter === "fail" && failIndicators.length === 0) || (filter === "pass" && passIndicators.length === 0)) return null;
 
                 return (
-                  <div key={category.id} ref={(el) => (categoryRefs.current[category.id] = el)} className="animate-fade-in">
+                  <div key={category.id} ref={(el) => { (categoryRefs.current[category.id] = el) }} className="animate-fade-in">
                     <Card className="bg-slate-800/50 backdrop-blur-sm border-white/10 shadow-xl">
                       <CardHeader>
                         <div className="flex items-center space-x-3 mb-2">
@@ -693,11 +725,11 @@ function ResultsContent() {
                                   return (
                                     <div
                                       key={indicator.code}
-                                      ref={(el) => (indicatorRefs.current[indicator.code] = el)}
+                                      ref={(el) => { (indicatorRefs.current[indicator.code] = el) }}
                                       className={`flex items-start space-x-4 p-4 border rounded-lg backdrop-blur-sm transition-all duration-700 ease-out bg-rose-900/20 border-rose-500/30 shadow-lg shadow-rose-500/10 ${isHighlighted ? "ring-4 ring-rose-400/50 shadow-2xl shadow-rose-500/30 scale-[1.02]" : ""}`}
                                       style={{ animation: "fade-slide-in 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
                                     >
-                                      <div className="flex-shrink-0 mt-0.5">
+                                      <div className="shrink-0 mt-0.5">
                                         <div className="flex items-center space-x-2">
                                           <Badge variant="secondary" className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10">
                                             {displayNo}
@@ -710,7 +742,9 @@ function ResultsContent() {
                                         <div className="flex items-center justify-between mb-2">
                                           <div className="flex items-center space-x-2">
                                             {getIndicatorIcon(indicator)}
-                                            <h4 className="font-medium text-white text-sm">{indicator.nameEn || indicator.code.toUpperCase()}</h4>
+                                            <h4 className="font-medium text-white text-sm">
+                                              {indicator.nameEn || indicator.code.toUpperCase()}
+                                            </h4>
                                           </div>
                                           {hasDetails(indicator) && (
                                             <Button
@@ -719,13 +753,25 @@ function ResultsContent() {
                                               onClick={() => toggleIndicator(indicator.code)}
                                               className="h-6 w-6 p-0 text-white hover:bg-white/10"
                                             >
-                                              {expandedIndicators.has(indicator.code) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                              {expandedIndicators.has(indicator.code) ? (
+                                                <ChevronUp className="h-4 w-4" />
+                                              ) : (
+                                                <ChevronDown className="h-4 w-4" />
+                                              )}
                                             </Button>
                                           )}
                                         </div>
 
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
                                         <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
+                                        
+                                        {hasDetails(indicator) && expandedIndicators.has(indicator.code) && (
+                                          <IndicatorDetail
+                                            registration_id={registration_id}
+                                            code={indicator.code}
+                                          />
+                                        )}
+
                                       </div>
                                     </div>
                                   );
@@ -753,11 +799,11 @@ function ResultsContent() {
                                   return (
                                     <div
                                       key={indicator.code}
-                                      ref={(el) => (indicatorRefs.current[indicator.code] = el)}
+                                      ref={(el) => { (indicatorRefs.current[indicator.code] = el) }}
                                       className="flex items-start space-x-4 p-4 border rounded-lg backdrop-blur-sm transition-all duration-700 ease-out bg-emerald-900/20 border-emerald-500/30 shadow-lg shadow-emerald-500/10"
                                       style={{ animation: "fade-slide-in 0.7s cubic-bezier(0.34, 1.56, 0.64, 1)" }}
                                     >
-                                      <div className="flex-shrink-0 mt-0.5">
+                                      <div className="shrink-0 mt-0.5">
                                         <div className="flex items-center space-x-2">
                                           <Badge variant="secondary" className="text-xs w-8 h-6 flex items-center justify-center bg-slate-700/50 text-white border border-white/10">
                                             {displayNo}
@@ -773,6 +819,16 @@ function ResultsContent() {
                                         </div>
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
                                         <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
+                                        {/* รายละเอียดของตัวชี้วัด (โหลดจาก API) */}
+                                        {hasDetails(indicator) && expandedIndicators.has(indicator.code) && (
+                                          <div className="mt-3">
+                                            <IndicatorDetail
+                                              registration_id={registration_id}
+                                              code={indicator.code}
+                                            />
+                                          </div>
+                                        )}
+
                                       </div>
                                     </div>
                                   );

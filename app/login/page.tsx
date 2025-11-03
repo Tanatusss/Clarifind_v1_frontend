@@ -62,7 +62,7 @@ export default function LoginPage() {
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <span className="text-2xl font-bold bg-gradient-to-r from-blue-200 to-cyan-200 bg-clip-text text-transparent">
+                <span className="text-2xl font-bold bg-linear-to-r from-blue-200 to-cyan-200 bg-clip-text text-transparent">
                   ClariFind
                 </span>
               </div>
@@ -82,7 +82,7 @@ export default function LoginPage() {
               <Badge variant="secondary" className="mb-4 glass-card border-primary/30 text-base px-4 py-2">
                 เข้าสู่ระบบ
               </Badge>
-              <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-blue-200 to-cyan-200 bg-clip-text text-transparent">
+              <h1 className="text-4xl font-bold mb-4 bg-linear-to-r from-blue-200 to-cyan-200 bg-clip-text text-transparent">
                 ยินดีต้อนรับกลับ
               </h1>
               <p className="text-foreground/70">เข้าสู่ระบบเพื่อใช้งาน ClariFind</p>

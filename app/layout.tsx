@@ -7,10 +7,12 @@ import { Suspense } from "react"
 import "./globals.css"
 import Providers from "./providers"
 import { ToastProvider } from "@/components/toast-provider"
+import { GlobalOverlayManager } from "@/components/global-overlay-manager"
 
 export const metadata: Metadata = {
   title: "ClariFind - การวิเคราะห์การปฏิบัติตามกฎระเบียบทางธุรกิจระดับมืออาชีพ",
-  description: "แพลตฟอร์มขั้นสูงเพื่อประเมินบริษัทตาม 23 ตัวชี้วัดการปฏิบัติตามกฎระเบียบ ด้วยการวิเคราะห์ระดับฟินเทคมืออาชีพ",
+  description:
+    "แพลตฟอร์มขั้นสูงเพื่อประเมินบริษัทตาม 23 ตัวชี้วัดการปฏิบัติตามกฎระเบียบ ด้วยการวิเคราะห์ระดับฟินเทคมืออาชีพ",
   generator: "v0.app",
 }
 
@@ -23,7 +25,11 @@ export default function RootLayout({
     <html lang="th">
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <Providers>
-          <Suspense fallback={null}>{children}</Suspense>
+          <Suspense fallback={null}>
+            {children}
+            {/* ✅ Overlay manager ครอบทุกหน้า */}
+            <GlobalOverlayManager />
+          </Suspense>
         </Providers>
         <Analytics />
         <ToastProvider />
