@@ -1,4 +1,4 @@
-// app/results/page.tsx
+// app/(shell)/results/page.tsx
 "use client";
 
 import { useSearchParams } from "next/navigation";
@@ -9,7 +9,8 @@ import { toast } from "react-toastify";
 import { CosmicBackground } from "@/components/cosmic-background";
 import { GradientOrbs } from "@/components/gradient-orbs";
 import { GlobeNetwork } from "@/components/globe-network";
-import { StepLoadingAnimation } from "@/components/step-loading-animation";
+// ❌ ไม่ใช้ StepLoadingAnimation ในหน้า results อีกแล้ว
+// import { StepLoadingAnimation } from "@/components/step-loading-animation";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,10 +43,12 @@ import {
 } from "@/lib/indicator-api";
 import { IndicatorDetail } from "@/components/indicators/IndicatorDetail";
 
+/* ---------------- Utilities ---------------- */
+
 // กล่องไอคอนมาตรฐาน: บังคับ svg ข้างในให้ h-5 w-5 เสมอ
 const IconBox = ({
   children,
-  colorClass = "text-slate-300", // ตั้งสีที่นี่ (ไอคอนใช้ currentColor)
+  colorClass = "text-slate-300",
   bgClass = "bg-white/5",
 }: {
   children: React.ReactNode;
@@ -63,12 +66,10 @@ const IconBox = ({
 /** 🔧 FIX ขนาดไอคอนให้เท่ากันเสมอ */
 const UniformIcon = ({ Icon, className = "" }: { Icon: any; className?: string }) => (
   <div className="w-5 h-5 flex items-center justify-center">
-    {/* กำหนด h-4 w-4 และ normalize stroke เพื่อให้ทุกอันเท่ากัน */}
     <Icon className={`h-4 w-4 stroke-[1.5] ${className}`} />
   </div>
 );
 
-/* ---------------- Types/Maps ---------------- */
 type CategoryId =
   | "shared-resources"
   | "foreigner-control"
@@ -166,24 +167,16 @@ const getCategoryIcon = (category: NormalizedIndicator["category"]) => {
 const getStatusIcon = (status: "pass" | "fail") =>
   status === "pass" ? <Circle className="h-5 w-5 text-green-600 fill-green-600" /> : <Circle className="h-5 w-5 text-red-600 fill-red-600" />;
 
-/* ------- small util: แทน findLastIndex เพื่อกันแครชใน SSR ------- */
 function lastIndexWhere<T>(arr: T[], pred: (t: T, idx: number, a: T[]) => boolean): number {
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (pred(arr[i], i, arr)) return i;
-  }
+  for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i], i, arr)) return i;
   return -1;
 }
 
-/* ---------------- Shell ---------------- */
+/* ---------------- Page Shell ---------------- */
 export default function ResultsPage() {
+  // ❗️fallback ว่าง เพื่อไม่โชว์พื้นหลังคนละสีตอนรอ children
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      }
-    >
+    <Suspense fallback={<></>}>
       <ResultsContent />
     </Suspense>
   );
@@ -316,7 +309,7 @@ function ResultsContent() {
   const [companyName, setCompanyName] = useState<string>(fallbackCompany);
   const [normalized, setNormalized] = useState<NormalizedIndicator[]>([]);
 
-  // ดึงข้อมูล: ใช้ summary API ก่อน แล้วค่อย fallback
+  // ✅ โหลดข้อมูลแบบ client แต่ “คงโครงหน้าเดิม” ไว้ — ไม่ return หน้าลอดดิ้งแยก
   useEffect(() => {
     const run = async () => {
       try {
@@ -433,7 +426,6 @@ function ResultsContent() {
         setDisplayedIndicatorsByCategory((prev) => {
           const arr = prev[currentCategoryKey] ?? [];
           if (cur.status === "fail") {
-            // เดิมใช้ arr.findLastIndex(...) -> เปลี่ยนเป็น helper กันแครช SSR
             const lastFailIdx = lastIndexWhere(arr, (code) => {
               const it = normalized.find((n) => n.code === code);
               return it?.status === "fail";
@@ -526,12 +518,12 @@ function ResultsContent() {
     URL.revokeObjectURL(url);
   }
 
-  if (isLoading) return <StepLoadingAnimation />;
-
+  // แสดง skeleton บนฉากเดิม
   const failureRate = normalized.length > 0 ? Math.round((failCount / normalized.length) * 100) : 0;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden animate-fade-in">
+    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden">
+      {/* ฉากพื้นหลังเดิม (ไม่เปลี่ยนตอนโหลด) */}
       <CosmicBackground />
       <GradientOrbs />
       <GlobeNetwork />
@@ -566,16 +558,22 @@ function ResultsContent() {
         </div>
       </header>
 
+      {/* เนื้อหา */}
       <div className="relative z-10">
         <div className="container mx-auto px-4 py-8">
           <div className="bg-slate-900/30 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-2xl">
-
             {/* Company Header */}
             <div className="mb-8">
               <div className="flex items-center space-x-3 mb-4">
                 <Building2 className="h-8 w-8 text-cyan-400" />
                 <div>
-                  <h2 className="text-3xl font-bold text-white">{companyName}</h2>
+                  <h2 className="text-3xl font-bold text-white">
+                    {isLoading ? (
+                      <span className="inline-block w-72 h-7 rounded bg-white/10 animate-pulse" />
+                    ) : (
+                      companyName
+                    )}
+                  </h2>
                   <p className="text-slate-300">รายงานการวิเคราะห์การปฏิบัติตามกฎระเบียบ</p>
                 </div>
               </div>
@@ -587,40 +585,42 @@ function ResultsContent() {
                 <CardHeader className="pb-4">
                   <CardTitle className="text-lg font-semibold text-center text-white">สัดส่วนผลการวิเคราะห์ตัวชี้วัด</CardTitle>
                   <CardDescription className="text-center text-slate-300">
-                    การแสดงสัดส่วนระหว่างตัวบ่งชี้ที่พบและไม่พบจากทั้งหมด {normalized.length} ตัวชี้วัด
+                    การแสดงสัดส่วนระหว่างตัวบ่งชี้ที่พบและไม่พบจากทั้งหมด {isLoading ? "—" : normalized.length} ตัวชี้วัด
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div className="relative h-16 bg-slate-700/30 rounded-lg overflow-hidden border border-white/10">
+                      {/* ฝั่งล้มเหลว */}
                       <div
                         className="absolute left-0 top-0 h-full bg-linear-to-r from-rose-500 to-rose-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-rose-500/20"
                         style={{
-                          width: `${displayedFailCount + displayedPassCount > 0
+                          width: `${(displayedFailCount + displayedPassCount > 0 && !isLoading)
                             ? (displayedFailCount / (displayedFailCount + displayedPassCount)) * 100
                             : 0
                             }%`,
                         }}
                       >
-                        {displayedFailCount > 0 && <span className="text-sm animate-pulse">พบตัวบ่งชี้ {displayedFailCount}</span>}
+                        {(!isLoading && displayedFailCount > 0) && <span className="text-sm animate-pulse">พบตัวบ่งชี้ {displayedFailCount}</span>}
                       </div>
+                      {/* ฝั่งผ่าน */}
                       <div
                         className="absolute right-0 top-0 h-full bg-linear-to-l from-emerald-500 to-emerald-400 flex items-center justify-center text-white font-semibold transition-all duration-500 shadow-lg shadow-emerald-500/20"
                         style={{
-                          width: `${displayedFailCount + displayedPassCount > 0
+                          width: `${(displayedFailCount + displayedPassCount > 0 && !isLoading)
                             ? (displayedPassCount / (displayedFailCount + displayedPassCount)) * 100
                             : 0
                             }%`,
                         }}
                       >
-                        {displayedPassCount > 0 && <span className="text-sm animate-pulse">ไม่พบตัวบ่งชี้ {displayedPassCount}</span>}
+                        {(!isLoading && displayedPassCount > 0) && <span className="text-sm animate-pulse">ไม่พบตัวบ่งชี้ {displayedPassCount}</span>}
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3 text-sm text-slate-300 justify-center">
-                      <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">พบ {failCount}</Badge>
-                      <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">ไม่พบ {passCount}</Badge>
-                      <Badge variant="outline" className="border-white/20 text-slate-300">รวม {normalized.length}</Badge>
+                      <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30">พบ {isLoading ? "—" : failCount}</Badge>
+                      <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">ไม่พบ {isLoading ? "—" : passCount}</Badge>
+                      <Badge variant="outline" className="border-white/20 text-slate-300">รวม {isLoading ? "—" : normalized.length}</Badge>
                     </div>
                   </div>
                 </CardContent>
@@ -642,6 +642,7 @@ function ResultsContent() {
                       variant={filter === "all" ? "default" : "outline"}
                       className={filter === "all" ? "bg-white/10" : "border-white/20 text-slate-200 hover:bg-white/10"}
                       onClick={() => setFilter("all")}
+                      disabled={isLoading}
                     >
                       ทั้งหมด
                     </Button>
@@ -650,6 +651,7 @@ function ResultsContent() {
                       variant={filter === "fail" ? "default" : "outline"}
                       className={filter === "fail" ? "bg-rose-600/40" : "border-white/20 text-slate-200 hover:bg-white/10"}
                       onClick={() => setFilter("fail")}
+                      disabled={isLoading}
                     >
                       พบตัวบ่งชี้
                     </Button>
@@ -658,6 +660,7 @@ function ResultsContent() {
                       variant={filter === "pass" ? "default" : "outline"}
                       className={filter === "pass" ? "bg-emerald-600/40" : "border-white/20 text-slate-200 hover:bg-white/10"}
                       onClick={() => setFilter("pass")}
+                      disabled={isLoading}
                     >
                       ไม่พบตัวบ่งชี้
                     </Button>
@@ -669,6 +672,45 @@ function ResultsContent() {
             {/* Category sections */}
             <div className="space-y-8">
               {categories.map((category) => {
+                // ตอนโหลด แสดง placeholder เปล่าๆ ของหมวด เพื่อไม่ให้ layout กระดิก
+                if (isLoading) {
+                  return (
+                    <div key={category.id} className="animate-fade-in">
+                      <Card className="bg-slate-800/50 backdrop-blur-sm border-white/10 shadow-xl">
+                        <CardHeader>
+                          <div className="flex items-center space-x-3 mb-2">
+                            <div className={`p-3 rounded-lg ${category.bgColor} border ${category.borderColor}`}>
+                              <category.icon className={`h-6 w-6 ${category.color}`} />
+                            </div>
+                            <div className="flex-1">
+                              <div className="h-5 w-64 bg-white/10 rounded animate-pulse" />
+                              <div className="h-4 w-40 bg-white/10 rounded mt-2 animate-pulse" />
+                            </div>
+                            <Badge variant="outline" className={`ml-auto ${category.color} border-current`}>
+                              — ตัวชี้วัด
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                              {[...Array(2)].map((_, i) => (
+                                <div key={i} className="p-4 border rounded-lg bg-white/5 border-white/10 animate-pulse h-20" />
+                              ))}
+                            </div>
+                            <div className="space-y-4">
+                              {[...Array(2)].map((_, i) => (
+                                <div key={i} className="p-4 border rounded-lg bg-white/5 border-white/10 animate-pulse h-20" />
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  );
+                }
+
+                // ปกติ: render ตาม flow reveal ของเดิม
                 if (!displayedCategories.includes(category.id)) return null;
                 const IconComponent = category.icon;
 
@@ -751,7 +793,7 @@ function ResultsContent() {
                                               variant="ghost"
                                               size="sm"
                                               onClick={() => toggleIndicator(indicator.code)}
-                                              className="h-6 w-6 p-0 text-white hover:bg-white/10"
+                                              className="h-6 w-6 p-0 text-white hover:bg:white/10"
                                             >
                                               {expandedIndicators.has(indicator.code) ? (
                                                 <ChevronUp className="h-4 w-4" />
@@ -764,14 +806,13 @@ function ResultsContent() {
 
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
                                         <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
-                                        
+
                                         {hasDetails(indicator) && expandedIndicators.has(indicator.code) && (
                                           <IndicatorDetail
                                             registration_id={registration_id}
                                             code={indicator.code}
                                           />
                                         )}
-
                                       </div>
                                     </div>
                                   );
@@ -819,7 +860,7 @@ function ResultsContent() {
                                         </div>
                                         <p className="text-sm text-slate-300 mb-1">{indicator.name}</p>
                                         <p className="text-xs text-slate-400">{indicator.description || "—"}</p>
-                                        {/* รายละเอียดของตัวชี้วัด (โหลดจาก API) */}
+
                                         {hasDetails(indicator) && expandedIndicators.has(indicator.code) && (
                                           <div className="mt-3">
                                             <IndicatorDetail
@@ -828,7 +869,6 @@ function ResultsContent() {
                                             />
                                           </div>
                                         )}
-
                                       </div>
                                     </div>
                                   );

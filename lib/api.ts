@@ -20,25 +20,26 @@ function apiBase() {
   return (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/+$/, "");
 }
 
-type ApiOpts = RequestInit & { skipAuth?: boolean };
+type ApiOpts = RequestInit & {
+  skipAuth?: boolean;
+  timeoutMs?: number;
+};
 
 export async function apiFetch<T = any>(path: string, opts: ApiOpts = {}): Promise<T> {
   const base = apiBase();
-
-  // 1) รองรับ absolute URL (http/https) → ไม่ต่อ BASE
   const url = /^https?:\/\//i.test(path)
     ? path
     : (() => {
         if (!base) {
-          // กันเคสลืมตั้ง env หรือยังไม่ restart dev server
           throw new Error(
-            'API base URL is empty. Please set NEXT_PUBLIC_API_BASE (e.g. "http://localhost:4545") and restart the dev server.'
+            '❌ API base URL is empty. Please set NEXT_PUBLIC_API_BASE (e.g. "http://localhost:4545") and restart dev server.'
           );
         }
         const p = path.startsWith("/") ? path : `/${path}`;
         return `${base}${p}`;
       })();
 
+  // ✅ headers รวมทุกอย่าง + token
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(opts.body ? { "Content-Type": "application/json" } : {}),
@@ -50,25 +51,51 @@ export async function apiFetch<T = any>(path: string, opts: ApiOpts = {}): Promi
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    ...opts,
-    headers,
-    cache: "no-store",
-    // mode: "cors",         // ใช้เมื่อ backend เปิด CORS และอยากบังคับโหมด
-    // credentials: "omit",  // ใช้ cookie ก็เปลี่ยนเป็น "include"
-  });
+  // ✅ เพิ่ม AbortController สำหรับ timeout
+  const controller = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 15000; // 15s
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    const err: any = new Error(text || res.statusText);
-    err.status = res.status;
-    try { err.data = JSON.parse(text); } catch {}
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...opts,
+      headers,
+      cache: "no-store",
+      keepalive: true, // ✅ ช่วย reuse connection
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (err.name === "AbortError") {
+      throw new Error(`Request timeout after ${timeoutMs / 1000}s`);
+    }
     throw err;
   }
+  clearTimeout(timeout);
 
-  // 2) กัน response ไม่ใช่ JSON (เช่น 204)
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.toLowerCase().includes("application/json")) return undefined as T;
+  // ✅ handle response
+  const text = await res.text().catch(() => "");
+  const contentType = res.headers.get("content-type") || "";
 
-  return (await res.json()) as T;
+  if (!res.ok) {
+    const error: any = new Error(text || res.statusText);
+    error.status = res.status;
+    try {
+      error.data = JSON.parse(text);
+      error.message = error.data?.error || error.data?.message || error.message;
+    } catch {}
+    throw error;
+  }
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    // เช่น 204 No Content
+    return undefined as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("Invalid JSON response from API");
+  }
 }

@@ -1,4 +1,4 @@
-// src/components/step-loading-animation.tsx
+
 "use client";
 
 import { useEffect, useState, useRef, RefObject } from "react";
@@ -82,7 +82,7 @@ export function StepLoadingAnimation({
   return (
     <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden flex items-center justify-center">
       {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 via-slate-950 to-purple-900/20" />
+      <div className="absolute inset-0 bg-linear-to-br from-blue-900/20 via-slate-950 to-purple-900/20" />
       <div className="absolute inset-0">
         <div className="absolute top-1/4 left/1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000" />
@@ -90,7 +90,7 @@ export function StepLoadingAnimation({
 
       <div className="relative z-10 max-w-2xl w-full px-8">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent">
+          <h2 className="text-3xl font-bold mb-2 bg-linear-to-r from-blue-400 via-cyan-400 to-blue-500 bg-clip-text text-transparent">
             Analyzing Company Data
           </h2>
           <p className="text-slate-400">Please wait while we process your request</p>
@@ -119,7 +119,7 @@ export function StepLoadingAnimation({
                   }`}
                 >
                   <div
-                    className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-500 ${
+                    className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-500 ${
                       isCompleted
                         ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/50"
                         : isCurrent
@@ -145,7 +145,7 @@ export function StepLoadingAnimation({
                     {isCurrent && (
                       <div className="mt-3 h-1 bg-slate-700 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full animate-progress-bar"
+                          className="h-full bg-linear-to-r from-blue-500 to-cyan-400 rounded-full animate-progress-bar"
                           style={{ animation: `progress-bar ${steps[index].duration}ms cubic-bezier(0.4, 0, 0.2, 1)` }}
                         />
                       </div>

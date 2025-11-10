@@ -9,7 +9,6 @@ import { GradientOrbs } from "@/components/gradient-orbs";
 import { GlobeNetwork } from "@/components/globe-network";
 import { QuickSearch } from "@/components/quick-search";
 import { Header } from "@/components/header";
-import { LoadingOverlay } from "@/components/LoadingOverlay";
 
 export default function HomePage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false); // ✅ คุม overlay
@@ -45,7 +44,7 @@ export default function HomePage() {
             </p>
 
             {/* ✅ ปุ่มค้นหา */}
-            <QuickSearch onStartAnalyze={() => setIsAnalyzing(true)} />
+            <QuickSearch />
           </div>
         </section>
 
@@ -120,8 +119,6 @@ export default function HomePage() {
         </footer>
       </div>
 
-      {/* ✅ แสดง Overlay ตอนกำลังวิเคราะห์ */}
-      {isAnalyzing && <LoadingOverlay open={isAnalyzing} />}
     </div>
   );
 }

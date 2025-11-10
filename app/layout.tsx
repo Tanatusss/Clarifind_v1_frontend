@@ -7,7 +7,6 @@ import { Suspense } from "react"
 import "./globals.css"
 import Providers from "./providers"
 import { ToastProvider } from "@/components/toast-provider"
-import { GlobalOverlayManager } from "@/components/global-overlay-manager"
 
 export const metadata: Metadata = {
   title: "ClariFind - การวิเคราะห์การปฏิบัติตามกฎระเบียบทางธุรกิจระดับมืออาชีพ",
@@ -27,8 +26,6 @@ export default function RootLayout({
         <Providers>
           <Suspense fallback={null}>
             {children}
-            {/* ✅ Overlay manager ครอบทุกหน้า */}
-            <GlobalOverlayManager />
           </Suspense>
         </Providers>
         <Analytics />
